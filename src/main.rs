@@ -1,3 +1,4 @@
+use rand::{prelude::*, rng};
 use rusty_engine::prelude::*;
 
 #[derive(Resource)]
@@ -29,11 +30,36 @@ fn main() {
         roadline.scale = 0.1;
         roadline.translation.x = -600.0 + 150.0 * i as f32;
     }
+
+    // Create obstacles
+    let obstacle_presets = vec![
+        SpritePreset::RacingBarrelBlue,
+        SpritePreset::RacingBarrelRed,
+        SpritePreset::RacingConeStraight,
+    ];
+
+    for (i, preset) in obstacle_presets.into_iter().enumerate() {
+        let obstacle = game.add_sprite(format!("obstacle_{}", i), preset);
+        obstacle.layer = 5.0;
+        obstacle.collision = true;
+        obstacle.translation.x = rng().random_range(800.0..1000.0);
+        obstacle.translation.y = rng().random_range(-300.0..300.0);
+    }
+
+    // Create the health message
+    let health_message = game.add_text("health_message", "Health: 5");
+    health_message.translation = Vec2::new(550.0, 320.0);
+
     game.add_logic(game_logic);
     game.run(GameState { health_amount: 5, lost: false });
 }
 
 fn game_logic(engine: &mut Engine, game_state: &mut GameState) {
+    // Don't run any more game logic if game has ended
+    if game_state.lost {
+        return;
+    }
+
     // Collect keyboard input
     let mut direction = 0.0;
     if engine
@@ -65,5 +91,37 @@ fn game_logic(engine: &mut Engine, game_state: &mut GameState) {
                 sprite.translation.x += 1500.0;
             }
         }
+
+        if sprite.label.starts_with("obstacle") {
+            sprite.translation.x -= ROAD_SPEED * engine.delta_f32;
+            if sprite.translation.x < -800.0 {
+                sprite.translation.x = rng().random_range(800.0..1000.0);
+                sprite.translation.y = rng().random_range(-300.0..300.0);
+            }
+        }
+    }
+
+    // Deal with collisions
+    let health_message = engine.texts.get_mut("health_message").unwrap();
+    for event in engine.collision_events.drain(..) {
+        // We don't care if obstacle collide with each other or if a collision ended
+        if !event.pair.either_contains("player1") || event.state.is_end() {
+            continue;
+        }
+
+        if game_state.health_amount > 0 {
+            game_state.health_amount -= 1;
+            health_message.value = format!("Health: {}", game_state.health_amount);
+            engine.audio_manager.play_sfx(SfxPreset::Impact2, 0.8);
+        }
+    }
+
+    // Detect if the game is over
+    if game_state.health_amount == 0 {
+        game_state.lost = true;
+        let game_over = engine.add_text("game_over", "Game Over");
+        game_over.font_size = 128.0;
+        engine.audio_manager.stop_music();
+        engine.audio_manager.play_sfx(SfxPreset::Jingle3, 0.5);
     }
 }
